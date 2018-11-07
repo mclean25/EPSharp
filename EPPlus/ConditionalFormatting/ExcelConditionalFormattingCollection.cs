@@ -27,46 +27,47 @@
  * Author					Change						                Date
  * ******************************************************************************
  * Eyal Seagull		Conditional Formatting            2012-04-03
+ * Alex McLean      Inserting row/column updating     2018-11-07
  *******************************************************************************/
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
-using System.Collections;
-using OfficeOpenXml.Utils;
+using System.Text.RegularExpressions;
 using System.Xml;
 using OfficeOpenXml.ConditionalFormatting.Contracts;
-using System.Text.RegularExpressions;
-using System.Drawing;
+using OfficeOpenXml.Utils;
 
 namespace OfficeOpenXml.ConditionalFormatting
 {
-  /// <summary>
-  /// Collection of <see cref="ExcelConditionalFormattingRule"/>.
-  /// This class is providing the API for EPPlus conditional formatting.
-  /// </summary>
-  /// <remarks>
-  /// <para>
-  /// The public methods of this class (Add[...]ConditionalFormatting) will create a ConditionalFormatting/CfRule entry in the worksheet. When this
-  /// Conditional Formatting has been created changes to the properties will affect the workbook immediately.
-  /// </para>
-  /// <para>
-  /// Each type of Conditional Formatting Rule has diferente set of properties.
-  /// </para>
-  /// <code>
-  /// // Add a Three Color Scale conditional formatting
-  /// var cf = worksheet.ConditionalFormatting.AddThreeColorScale(new ExcelAddress("A1:C10"));
-  /// // Set the conditional formatting properties
-  /// cf.LowValue.Type = ExcelConditionalFormattingValueObjectType.Min;
-  /// cf.LowValue.Color = Color.White;
-  /// cf.MiddleValue.Type = ExcelConditionalFormattingValueObjectType.Percent;
-  /// cf.MiddleValue.Value = 50;
-  /// cf.MiddleValue.Color = Color.Blue;
-  /// cf.HighValue.Type = ExcelConditionalFormattingValueObjectType.Max;
-  /// cf.HighValue.Color = Color.Black;
-  /// </code>
-  /// </remarks>
-  public class ExcelConditionalFormattingCollection
+    /// <summary>
+    /// Collection of <see cref="ExcelConditionalFormattingRule"/>.
+    /// This class is providing the API for EPPlus conditional formatting.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The public methods of this class (Add[...]ConditionalFormatting) will create a ConditionalFormatting/CfRule entry in the worksheet. When this
+    /// Conditional Formatting has been created changes to the properties will affect the workbook immediately.
+    /// </para>
+    /// <para>
+    /// Each type of Conditional Formatting Rule has diferente set of properties.
+    /// </para>
+    /// <code>
+    /// // Add a Three Color Scale conditional formatting
+    /// var cf = worksheet.ConditionalFormatting.AddThreeColorScale(new ExcelAddress("A1:C10"));
+    /// // Set the conditional formatting properties
+    /// cf.LowValue.Type = ExcelConditionalFormattingValueObjectType.Min;
+    /// cf.LowValue.Color = Color.White;
+    /// cf.MiddleValue.Type = ExcelConditionalFormattingValueObjectType.Percent;
+    /// cf.MiddleValue.Value = 50;
+    /// cf.MiddleValue.Color = Color.Blue;
+    /// cf.HighValue.Type = ExcelConditionalFormattingValueObjectType.Max;
+    /// cf.HighValue.Color = Color.Black;
+    /// </code>
+    /// </remarks>
+    public class ExcelConditionalFormattingCollection
     : XmlHelper,
     IEnumerable<IExcelConditionalFormattingRule>
   {
@@ -276,12 +277,152 @@ namespace OfficeOpenXml.ConditionalFormatting
     }
 
     /// <summary>
-    /// Removes all 'cfRule' from the collection and from the XML.
-    /// <remarks>
-    /// This is the same as removing all the 'conditionalFormatting' nodes.
-    /// </remarks>
+    /// This is used to update conditional formatting rules when a row/column is inserted
     /// </summary>
-    public void RemoveAll()
+    /// <param name="rowFrom">row number the insert is starting at</param>
+    /// <param name="colFrom">column number the insert is starting at</param>
+    /// <param name="rows"># of rows being added</param>
+    /// <param name="cols"># of columns being added</param>
+    /// <param name="filter">Filter to limit the number of rules to change</param>
+    internal void Insert(int rowFrom, int colFrom, int rows, int cols, Func<IExcelConditionalFormattingRule, bool> filter)
+    {
+        var cfToModify = this._rules.Where(filter);
+        foreach (IExcelConditionalFormattingRule rule in cfToModify)
+        {
+            if (!rule.Address.Address.Contains("#REF"))
+            {
+                if (rows > 0)
+                {
+                    InsertRows(rowFrom, rows, rule, IncrementAddressRow);
+                }
+                if (cols > 0)
+                {
+                    InsertColumns(colFrom, cols, rule, IncrementAddressColumn);
+                }
+            }
+        }
+    }
+
+    private void InsertRows(int rowFrom, int rows, IExcelConditionalFormattingRule rule,
+        Func<int, int, ExcelAddress, string> insertMethod)
+    {
+        if (rows > 0)
+        {
+            InsertEnumerableCells(rowFrom, rows, rule, insertMethod);
+        }
+    }
+
+    private void InsertColumns(int colFrom, int cols, IExcelConditionalFormattingRule rule,
+        Func<int, int, ExcelAddress, string> insertMethod)
+    {
+        if (colFrom > 0)
+        {
+            InsertEnumerableCells(colFrom, cols, rule, insertMethod);
+        }
+    }
+
+    private void InsertEnumerableCells(int from, int count, IExcelConditionalFormattingRule rule,
+        Func<int, int, ExcelAddress, string> insertMethod)
+    {
+        if (count > 0)
+        {
+            ExcelAddress address = rule.Address;
+
+            Regex regex = new Regex(FormulaParsing.Utilities.RegexConstants.ExcelAddress);
+            StringBuilder newAddress = new StringBuilder(string.Empty);
+
+            foreach (Match match in regex.Matches(address.Address))
+            {
+                string converted = insertMethod(from, count, new ExcelAddress(match.Value));
+                if (!string.IsNullOrEmpty(converted))
+                {
+                    // Excel's conditional formatting rules have spaces between ranges to denote a set of ranges to apply
+                    // the rule to. eg "A1 C3:G6 R$7"
+                    newAddress.Append(
+                        string.Format(
+                            " {0}",
+                            converted));
+                }
+            }
+            SetNewRuleAddress(rule, address, newAddress.ToString());
+        }
+    }
+
+    private string IncrementAddressRow(int rowFrom, int rows, ExcelAddress address)
+    {
+        string newAddress = null;
+
+        if (rows <= address.Start.Row)
+        {
+            newAddress = ExcelCellBase.GetAddress(
+                address.Start.Row + rows,
+                address.Start.Column,
+                address.End.Row + rows,
+                address.End.Column);
+        }
+        else if (rowFrom <= address.End.Row && address.End.Row + rows <= ExcelPackage.MaxRows)
+        {
+            newAddress = ExcelCellBase.GetAddress(
+                address.Start.Row,
+                address.Start.Column,
+                address.End.Row + rows,
+                address.End.Column);
+        }
+
+        return newAddress;
+    }
+
+    private string IncrementAddressColumn(int colFrom, int cols, ExcelAddress address)
+    {
+        string newAddress = null;
+
+        if (colFrom <= address.Start.Column)
+        {
+            newAddress = ExcelCellBase.GetAddress(
+                address.Start.Row,
+                address.Start.Column + cols,
+                address.End.Row,
+                address.End.Column + cols);
+        }
+        else if (colFrom <= address.End.Column && address.End.Column + cols < ExcelPackage.MaxColumns)
+        {
+            newAddress = ExcelCellBase.GetAddress(
+                address.Start.Row,
+                address.Start.Column,
+                address.End.Row,
+                address.End.Column + cols);
+        }
+
+        return newAddress;
+    }
+
+    private static string BuildNewAddress(IExcelConditionalFormattingRule rule, string newAddress)
+    {
+        if (rule.Address.FullAddress.Contains("!"))
+        {
+            var worksheet = rule.Address.FullAddress.Split('!')[0];
+            worksheet = worksheet.Trim('\'');
+            newAddress = ExcelCellBase.GetFullAddress(worksheet, newAddress);
+        }
+        return newAddress;
+    }
+
+    private static void SetNewRuleAddress(IExcelConditionalFormattingRule rule, ExcelAddress address, string newAddress)
+    {
+        if (newAddress != null)
+        {
+            address.Address = BuildNewAddress(rule, newAddress);
+            rule.Address = address; // this needs to be on it's own line to ensure you're calling the rule.Address setter
+        }
+    }
+
+        /// <summary>
+        /// Removes all 'cfRule' from the collection and from the XML.
+        /// <remarks>
+        /// This is the same as removing all the 'conditionalFormatting' nodes.
+        /// </remarks>
+        /// </summary>
+        public void RemoveAll()
     {
       // Look for all the <conditionalFormatting> nodes
       var conditionalFormattingNodes = TopNode.SelectNodes(
