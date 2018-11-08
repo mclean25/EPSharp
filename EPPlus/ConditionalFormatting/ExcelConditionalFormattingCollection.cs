@@ -276,6 +276,8 @@ namespace OfficeOpenXml.ConditionalFormatting
             return _rules.GetEnumerator();
         }
 
+        public ExcelWorksheet Worksheet { get; } = null;
+
         /// <summary>
         /// This is used to update conditional formatting rules when a row/column is inserted
         /// </summary>
@@ -327,8 +329,9 @@ namespace OfficeOpenXml.ConditionalFormatting
             if (count > 0)
             {
                 ExcelAddress address = rule.Address;
-
-                Regex regex = new Regex(FormulaParsing.Utilities.RegexConstants.ExcelAddress);
+                object parse = _worksheet.Workbook.FormulaParser.Parse(rule.Address.Address);
+                Regex regex = new Regex("((')?(\\[[ a-zA-Z0-9!$'()+,-.;=@^_`]+\\.xls(x|m)?\\])?[ a-zA-Z]+(')?!)?((\\$?[a-zA-Z]+\\$?\\d+:\\" +
+                    "$?[a-zA-Z]+\\$?\\d+)|(\\$?[a-zA-Z]+\\$?\\d+))");
                 StringBuilder newAddress = new StringBuilder(string.Empty);
 
                 foreach (Match match in regex.Matches(address.Address))

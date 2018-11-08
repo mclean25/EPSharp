@@ -1894,6 +1894,7 @@ namespace OfficeOpenXml
                 Comments.Insert(rowFrom, 0, rows, 0);
                 _names.Insert(rowFrom, 0, rows, 0);
                 Workbook.Names.Insert(rowFrom, 0, rows, 0, n => n.Worksheet == this);
+                ConditionalFormatting.Insert(rowFrom, 0, rows, 0, n => n.Worksheet == this);
 
                 foreach (var f in _sharedFormulas.Values)
                 {
@@ -4413,7 +4414,6 @@ namespace OfficeOpenXml
                 candidateDisposable.Dispose();
             }
         }
-
 
         public void Dispose()
         {

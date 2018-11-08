@@ -199,6 +199,15 @@ namespace EPPlusTest
         ws.SetValue(4, 3, 4);
         ws.SetValue(5, 3, 5);    
     }
+    [TestMethod]
+    public void InsertRowsTest()
+    {
+        var pck = new ExcelPackage(new FileInfo(@"c:\temp\CofCTemplate.xlsx"));
+        ExcelWorksheet ws = pck.Workbook.Worksheets.Add("ColorScale");
+        IExcelConditionalFormattingRule rule = ws.ConditionalFormatting.AddBeginsWith(new ExcelAddress("A1"));
+        ws.InsertRow(1, 1);
+        Assert.AreEqual(2, rule.Address._fromRow);
+    }
     //[TestMethod]
     //public void TwoAndThreeColorConditionalFormattingFromFileDoesNotGetOverwrittenWithDefaultValues()
     //{
